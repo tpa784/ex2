@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Manager</title>
+  
+  <!-- Защита от XSS (Политика CSP) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+
+  <!-- Простой, но адаптивный CSS -->
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f0f0f0;
+      padding: 10px;
+    }
+    .container {
+      background: white;
+      max-width: 450px;
+      margin: 20px auto;
+      padding: 15px;
+      border: 1px solid #ccc;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+    /* Простая форма добавления */
+    .todo-form {
+      display: flex;
+      margin-bottom: 15px;
+    }
+    .todo-form input {
+      flex: 1;
+      padding: 8px;
+      margin-right: 5px;
+    }
+    .todo-form button {
+      padding: 8px 15px;
+      background: rgb(148, 112, 53);
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .filters {
+      margin-bottom: 15px;
+    }
+    /* Обычный список задач */
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .task-text {
+      flex: 1;
+      margin: 0 10px;
+    }
+    /* Стиль для выполненной задачи */
+    .completed {
+      text-decoration: line-through;
+      color: gray;
+    }
+    .btn-delete {
+      background: red;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .lazy-pic {
+      width: 16px;
+      height: 16px;
+      margin-right: 10px;
+    }
+    /* Адаптив под мобилки*/
+    @media (max-width: 480px) {
+      .todo-form {
+        flex-direction: column;
+      }
+      .todo-form input {
+        margin-right: 0;
+        margin-bottom: 5px;
+      }
+    }
+  </style>
+
+  <!-- Оптимизация: асинхронная загрузка тяжелых стилей, если они вдруг есть -->
+  <link rel="stylesheet" href="style.css" media="print" onload="this.media='all'">
+</head>
+<body>
+
+  <div class="container">
+    <h1>Мой Список Задач</h1>
+    
+    <form class="todo-form" id="addForm">
+      <input type="text" id="userInput" placeholder="Что нужно сделать?" required maxlength="100">
+      <button type="submit">Добавить</button>
+    </form>
+
+    <div class="filters">
+      Фильтр: 
+      <select id="filterSelect">
+        <option value="all">Все</option>
+        <option value="active">Активные</option>
+        <option value="completed">Выполненные</option>
+      </select>
+    </div>
+
+    <ul id="todoList"></ul>
+  </div>
+
+  <!-- Оптимизация: defer скрипт -->
+  <script defer>
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('addForm');
+      const input = document.getElementById('userInput');
+      const list = document.getElementById('todoList');
+      const filterSelect = document.getElementById('filterSelect');
+
+      let items = JSON.parse(localStorage.getItem('my_tasks')) || [];
+
+      // Защита от XSS (Обязательное требование)
+      function cleanHTML(text) {
+        return text.replace(/[&<>"']/g, function(m) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+        });
+      }
+
+      function save() {
+        localStorage.setItem('my_tasks', JSON.stringify(items));
+      }
+
+      function draw() {
+        list.innerHTML = '';
+        const currentFilter = filterSelect.value;
+
+        const filtered = items.filter(item => {
+          if (currentFilter === 'active') return !item.done;
+          if (currentFilter === 'completed') return item.done;
+          return true;
+        });
+
+        if (filtered.length === 0) {
+          list.innerHTML = '<li style="color:gray;">Задач нет</li>';
+          return;
+        }
+
+        filtered.forEach(item => {
+          const li = document.createElement('li');
+          if (item.done) li.classList.add('completed');
+
+          // Оптимизация: Lazy-loading картинок/иконок через data-src
+          li.innerHTML = `
+            <input type="checkbox" ${item.done ? 'checked' : ''} data-id="${item.id}">
+            <span class="task-text">${cleanHTML(item.text)}</span>
+            <img class="lazy-pic" data-src="data:image/svg+xml;utf8,<svg xmlns='http://w3.org' viewBox='0 0 24 24' fill='blue'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/></svg>" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="!">
+            <button class="btn-delete" data-id="${item.id}">Удалить</button>
+          `;
+          list.appendChild(li);
+        });
+
+        lazyLoadRun();
+      }
+
+      // Оптимизация: Lazy loading через стандартный IntersectionObserver
+      function lazyLoadRun() {
+        const images = document.querySelectorAll('.lazy-pic[data-src]');
+        if ('IntersectionObserver' in window) {
+          const observer = new IntersectionObserver((entries, obs) => {
+            entries.forEach(entry => {
+              if (entry.isIntersecting) {
+                const img = entry.target;
+                img.src = img.getAttribute('data-src');
+                img.removeAttribute('data-src');
+                obs.unobserve(img);
+              }
+            });
+          });
+          images.forEach(img => observer.observe(img));
+        } else {
+          images.forEach(img => img.src = img.getAttribute('data-src'));
+        }
+      }
+
+      // Добавление
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const val = input.value.trim();
+        if (!val) return;
+
+        items.push({
+          id: Date.now().toString(),
+          text: val,
+          done: false
+        });
+
+        input.value = '';
+        save();
+        draw();
+      });
+
+      // Клики по чекбоксам и удалению (делегирование)
+      list.addEventListener('click', (e) => {
+        const id = e.target.getAttribute('data-id');
+        if (!id) return;
+
+        if (e.target.type === 'checkbox') {
+          items = items.map(i => i.id === id ? { ...i, done: e.target.checked } : i);
+        } else if (e.target.classList.contains('btn-delete')) {
+          items = items.filter(i => i.id !== id);
+        }
+
+        save();
+        draw();
+      });
+
+      filterSelect.addEventListener('change', draw);
+      
+      // Первый запуск
+      draw();
+    });
+  </script>
+</body>
+</html>
